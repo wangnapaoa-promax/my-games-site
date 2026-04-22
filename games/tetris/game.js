@@ -1,142 +1,152 @@
-// 俄罗斯方块游戏逻辑
 const COLS = 10;
 const ROWS = 20;
-const BLOCK_SIZE = 30;
+const SIZE = 30;
 
-let board = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
-let currentPiece = null;
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let board = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+
 let score = 0;
 let level = 1;
-let gameRunning = true;
-let isPaused = false;
-let gameBoard = document.getElementById('gameBoard');
+let dropSpeed = 800;
+let lastTime = 0;
+let paused = false;
+let gameOver = false;
 
 const pieces = [
-    {shape: [[1, 1, 1, 1]], color: '#667eea'}, // I
-    {shape: [[1, 1], [1, 1]], color: '#667eea'}, // O
-    {shape: [[0, 1, 0], [1, 1, 1]], color: '#667eea'}, // T
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]],
+  [[1,1,0],[0,1,1]],
+  [[0,1,1],[1,1,0]]
 ];
 
-class Piece {
-    constructor() {
-        const template = pieces[Math.floor(Math.random() * pieces.length)];
-        this.shape = template.shape;
-        this.color = template.color;
-        this.x = Math.floor(COLS / 2) - 1;
-        this.y = 0;
+function newPiece() {
+  const shape = pieces[Math.floor(Math.random()*pieces.length)];
+  return {
+    shape,
+    x: 3,
+    y: 0
+  };
+}
+
+let piece = newPiece();
+
+function drawBlock(x,y,color="cyan") {
+  ctx.fillStyle = color;
+  ctx.fillRect(x*SIZE, y*SIZE, SIZE-1, SIZE-1);
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // board
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      if(board[y][x]) drawBlock(x,y,"#667eea");
     }
+  }
+
+  // current piece
+  piece.shape.forEach((row,dy)=>{
+    row.forEach((val,dx)=>{
+      if(val){
+        drawBlock(piece.x+dx, piece.y+dy);
+      }
+    });
+  });
 }
 
-function initGame() {
-    board = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
-    score = 0;
-    level = 1;
-    gameRunning = true;
-    isPaused = false;
-    currentPiece = new Piece();
-    render();
+function collide() {
+  return piece.shape.some((row,dy)=>
+    row.some((val,dx)=>{
+      if(!val) return false;
+      let x = piece.x+dx;
+      let y = piece.y+dy;
+      return x<0 || x>=COLS || y>=ROWS || (y>=0 && board[y][x]);
+    })
+  );
 }
 
-function render() {
-    gameBoard.innerHTML = '';
-    
-    // 绘制棋盘
-    for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-            const block = document.createElement('div');
-            block.className = 'block';
-            if (board[y][x]) {
-                block.classList.add('filled');
-            }
-            gameBoard.appendChild(block);
-        }
+function merge() {
+  piece.shape.forEach((row,dy)=>{
+    row.forEach((val,dx)=>{
+      if(val){
+        board[piece.y+dy][piece.x+dx]=1;
+      }
+    });
+  });
+}
+
+function clearLines() {
+  let lines=0;
+  outer: for(let y=ROWS-1;y>=0;y--){
+    for(let x=0;x<COLS;x++){
+      if(!board[y][x]) continue outer;
     }
-    
-    document.getElementById('score').textContent = score;
-    document.getElementById('level').textContent = level;
+    board.splice(y,1);
+    board.unshift(Array(COLS).fill(0));
+    lines++;
+    y++;
+  }
+
+  if(lines){
+    score += lines*100;
+    level = Math.floor(score/500)+1;
+    dropSpeed = Math.max(100, 800 - level*60);
+  }
+
+  document.getElementById("score").textContent=score;
+  document.getElementById("level").textContent=level;
 }
 
-function moveDown() {
-    if (!isPaused && gameRunning) {
-        currentPiece.y++;
-        if (collides()) {
-            currentPiece.y--;
-            placePiece();
-            currentPiece = new Piece();
-        }
-        render();
+function rotate() {
+  const m = piece.shape;
+  const rotated = m[0].map((_,i)=>m.map(row=>row[i]).reverse());
+  const old = piece.shape;
+  piece.shape = rotated;
+  if(collide()) piece.shape = old;
+}
+
+function drop() {
+  piece.y++;
+  if(collide()){
+    piece.y--;
+    merge();
+    clearLines();
+    piece = newPiece();
+    if(collide()){
+      gameOver=true;
+      alert("Game Over");
+      location.reload();
     }
+  }
 }
 
-function moveLeft() {
-    if (!isPaused && gameRunning) {
-        currentPiece.x--;
-        if (collides()) {
-            currentPiece.x++;
-        }
-        render();
-    }
+function update(time=0){
+  if(paused || gameOver) return;
+
+  if(time-lastTime>dropSpeed){
+    drop();
+    lastTime=time;
+  }
+  draw();
+  requestAnimationFrame(update);
 }
 
-function moveRight() {
-    if (!isPaused && gameRunning) {
-        currentPiece.x++;
-        if (collides()) {
-            currentPiece.x--;
-        }
-        render();
-    }
-}
-
-function collides() {
-    const shape = currentPiece.shape;
-    for (let y = 0; y < shape.length; y++) {
-        for (let x = 0; x < shape[y].length; x++) {
-            if (shape[y][x]) {
-                const boardX = currentPiece.x + x;
-                const boardY = currentPiece.y + y;
-                if (boardX < 0 || boardX >= COLS || boardY >= ROWS || (boardY >= 0 && board[boardY][boardX])) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-function placePiece() {
-    const shape = currentPiece.shape;
-    for (let y = 0; y < shape.length; y++) {
-        for (let x = 0; x < shape[y].length; x++) {
-            if (shape[y][x]) {
-                const boardX = currentPiece.x + x;
-                const boardY = currentPiece.y + y;
-                if (boardY >= 0) {
-                    board[boardY][boardX] = 1;
-                }
-            }
-        }
-    }
-}
-
-function resetGame() {
-    initGame();
-}
-
-function togglePause() {
-    isPaused = !isPaused;
-    document.getElementById('pauseBtn').textContent = isPaused ? '继续' : '暂停';
-}
-
-// 键盘控制
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') moveLeft();
-    if (e.key === 'ArrowRight') moveRight();
-    if (e.key === 'ArrowDown') moveDown();
+document.addEventListener("keydown",(e)=>{
+  if(e.key==="ArrowLeft"){ piece.x--; if(collide()) piece.x++; }
+  if(e.key==="ArrowRight"){ piece.x++; if(collide()) piece.x--; }
+  if(e.key==="ArrowDown"){ drop(); }
+  if(e.key==="ArrowUp"){ rotate(); }
 });
 
-// 游戏循环
-setInterval(moveDown, 1000);
+function togglePause(){
+  paused = !paused;
+  if(!paused) update();
+}
 
-// 初始化游戏
-initGame();
+update();
