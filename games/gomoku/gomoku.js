@@ -5,27 +5,11 @@ let board, current, gameOver, history=[];
 let canvas = document.getElementById("board");
 let ctx = canvas.getContext("2d");
 
-// ===== Zobrist =====
-const zob = [];
-for(let y=0;y<SIZE;y++){
-  zob[y]=[];
-  for(let x=0;x<SIZE;x++){
-    zob[y][x]=[
-      Math.random()*1e9|0,
-      Math.random()*1e9|0,
-      Math.random()*1e9|0
-    ];
-  }
-}
-let hash=0;
-let cache = new Map();
-
 // ===== 初始化 =====
 function resetGame(){
   board = Array.from({length:SIZE},()=>Array(SIZE).fill(0));
   history=[];
   gameOver=false;
-  hash=0;
 
   current = Math.random()<0.5?BLACK:WHITE;
   draw();
@@ -38,11 +22,11 @@ function resetGame(){
   }
 }
 
-// ===== UI =====
 function setStatus(s){
   document.getElementById("status").innerText=s;
 }
 
+// ===== 点击 =====
 canvas.onclick = e=>{
   if(gameOver || current!==BLACK) return;
 
@@ -54,13 +38,24 @@ canvas.onclick = e=>{
   put(x,y,BLACK);
 
   if(win(x,y)){
-    setStatus("你赢了"); gameOver=true; return;
+    end("你赢了"); return;
   }
 
   current=WHITE;
   setStatus("AI思考中...");
-  setTimeout(aiMove,50);
+  setTimeout(aiMove,30);
 };
+
+// ===== 落子 =====
+function put(x,y,p){
+  board[y][x]=p;
+  history.push([x,y]);
+  draw();
+}
+
+function undoMove(x,y){
+  board[y][x]=0;
+}
 
 function draw(){
   ctx.clearRect(0,0,450,450);
@@ -89,30 +84,11 @@ function draw(){
   }
 }
 
-// ===== 落子 =====
-function put(x,y,p){
-  board[y][x]=p;
-  hash ^= zob[y][x][p];
-  history.push([x,y]);
-  draw();
-}
-
-function undo(){
-  if(history.length<2) return;
-  for(let i=0;i<2;i++){
-    let [x,y]=history.pop();
-    hash ^= zob[y][x][board[y][x]];
-    board[y][x]=0;
-  }
-  draw();
-  current=BLACK;
-}
-
 // ===== AI =====
 function aiMove(){
   if(gameOver) return;
 
-  let depth = 4;
+  let depth = 5;
 
   // 必胜
   let m = findWin(WHITE);
@@ -124,7 +100,9 @@ function aiMove(){
 
   let best=null, bestScore=-1e9;
 
-  for(let [x,y] of moves()){
+  let list = moves();
+
+  for(let [x,y] of list){
     put(x,y,WHITE);
     let val = -negamax(depth-1,-1e9,1e9,BLACK);
     undoMove(x,y);
@@ -156,14 +134,13 @@ function end(msg){
 
 // ===== 搜索 =====
 function negamax(depth,a,b,player){
-  let key = hash+"_"+depth+"_"+player;
-  if(cache.has(key)) return cache.get(key);
-
   if(depth===0) return evaluate();
 
   let best=-1e9;
 
-  for(let [x,y] of moves()){
+  let list = moves();
+
+  for(let [x,y] of list){
     put(x,y,player);
     let val = -negamax(depth-1,-b,-a,3-player);
     undoMove(x,y);
@@ -173,27 +150,25 @@ function negamax(depth,a,b,player){
     if(a>=b) break;
   }
 
-  cache.set(key,best);
   return best;
 }
 
-function undoMove(x,y){
-  hash ^= zob[y][x][board[y][x]];
-  board[y][x]=0;
-}
-
-// ===== 候选点 =====
+// ===== 候选点（强化排序）=====
 function moves(){
   let list=[];
+
   for(let y=0;y<SIZE;y++){
     for(let x=0;x<SIZE;x++){
       if(!board[y][x] && near(x,y)){
-        list.push([scorePos(x,y),x,y]);
+        let s = scorePos(x,y);
+        list.push([s,x,y]);
       }
     }
   }
+
   list.sort((a,b)=>b[0]-a[0]);
-  return list.slice(0,25).map(i=>[i[1],i[2]]);
+
+  return list.slice(0,30).map(i=>[i[1],i[2]]);
 }
 
 function near(x,y){
@@ -208,14 +183,14 @@ function near(x,y){
   return false;
 }
 
-// ===== 评分 =====
+// ===== 评分（强化版）=====
 function evaluate(){
-  return score(WHITE)-score(BLACK);
+  return score(WHITE)*1.2 - score(BLACK);
 }
 
 function scorePos(x,y){
   board[y][x]=WHITE;
-  let s = score(WHITE) + score(BLACK)*0.8;
+  let s = score(WHITE)*1.2 + score(BLACK);
   board[y][x]=0;
   return s;
 }
@@ -235,27 +210,31 @@ function score(p){
         while(nx>=0&&ny>=0&&nx<SIZE&&ny<SIZE&&board[ny][nx]===p){
           cnt++; nx+=dx; ny+=dy;
         }
-        if(nx>=0&&ny>=0&&nx<SIZE&&ny<SIZE&&board[ny][nx]===EMPTY) open++;
+        if(inBoard(nx,ny)&&board[ny][nx]===EMPTY) open++;
 
         nx=x-dx; ny=y-dy;
         while(nx>=0&&ny>=0&&nx<SIZE&&ny<SIZE&&board[ny][nx]===p){
           cnt++; nx-=dx; ny-=dy;
         }
-        if(nx>=0&&ny>=0&&nx<SIZE&&ny<SIZE&&board[ny][nx]===EMPTY) open++;
+        if(inBoard(nx,ny)&&board[ny][nx]===EMPTY) open++;
 
         if(cnt>=5) s+=1000000;
-        else if(cnt===4&&open===2) s+=100000;
-        else if(cnt===4) s+=10000;
-        else if(cnt===3&&open===2) s+=5000;
-        else if(cnt===3) s+=500;
-        else if(cnt===2&&open===2) s+=200;
+        else if(cnt===4&&open===2) s+=200000; // 活四
+        else if(cnt===4) s+=50000;           // 冲四
+        else if(cnt===3&&open===2) s+=10000; // 活三
+        else if(cnt===3) s+=1000;
+        else if(cnt===2&&open===2) s+=300;
       }
     }
   }
   return s;
 }
 
-// ===== 胜负 =====
+function inBoard(x,y){
+  return x>=0&&y>=0&&x<SIZE&&y<SIZE;
+}
+
+// ===== 必胜检测 =====
 function findWin(p){
   for(let y=0;y<SIZE;y++){
     for(let x=0;x<SIZE;x++){
@@ -272,12 +251,13 @@ function findWin(p){
   return null;
 }
 
+// ===== 胜负 =====
 function win(x,y){
   let p=board[y][x];
 
   function c(dx,dy){
     let i=0,nx=x+dx,ny=y+dy;
-    while(nx>=0&&ny>=0&&nx<SIZE&&ny<SIZE&&board[ny][nx]===p){
+    while(inBoard(nx,ny)&&board[ny][nx]===p){
       i++; nx+=dx; ny+=dy;
     }
     return i;
