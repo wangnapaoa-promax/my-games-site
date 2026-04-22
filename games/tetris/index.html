@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tetris</title>
+<style>
+body { text-align: center; background:#eee; font-family: Arial; }
+
+canvas {
+  background: #111;
+  margin-top: 20px;
+}
+
+button {
+  margin-top: 10px;
+  padding: 6px 12px;
+}
+</style>
+</head>
+<body>
+
+<h2>俄罗斯方块</h2>
+
+<canvas id="game" width="300" height="600"></canvas>
+
+<p>分数: <span id="score">0</span></p>
+<p>等级: <span id="level">1</span></p>
+
+<button onclick="togglePause()">暂停</button>
+<a href="../../">返回首页</a>
+
+<script src="game.js"></script>
+
+</body>
+</html>
